@@ -1,0 +1,24 @@
+ {
+     "cancel": { "kill": true },
+     "working_dir": "$file_path",
+     "target": "arduinotree_compile",
+     "file_regex": "^(..[^:]*):([0-9]+):?([0-9]+)?:? (.*)$",
+     "quiet":true,
+     "cmd":[],
+   
+     "variants": [
+     	{
+     		"name":"Compile",
+     		"mode":0
+     	},
+     	{
+     		"name":"Export Binary",
+     		"mode":2
+     	},
+     	{
+     		"name":"Upload",
+     		"mode":1
+     	}
+
+     ]
+ }

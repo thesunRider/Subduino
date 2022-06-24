@@ -1,0 +1,10 @@
+[{
+  "caption": "Upload",
+  "command": "arduinotree_upload"
+}, {
+  "caption": "Compile",
+  "command": "arduinotree_compile"
+}, {
+  "caption": "Serial Monitor",
+  "command": "arduinotree_serial"
+}]
