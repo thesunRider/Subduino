@@ -8,14 +8,23 @@ import os
 import sys
 import shutil
 import threading
+import sys
+
+
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+
+import cache_generate
 
 from Default.exec import ExecCommand
 
-
-
-
 cache_path = os.path.join(sublime.cache_path(), "ArduinoTree")
-cache_file = ""
+cache_file = os.path.join(cache_path, "cache.json")
+
+boards_list = None
+cache_read = None
+if(os.path.exists(cache_file)):
+	cache_read = open(cache_file,'r')
+	boards_list = json.load(cache_read)
 
 
 class settingspkg:
@@ -28,10 +37,10 @@ class settingspkg:
 	options = {}
 
 	def __init__(self):
-		self.context.append({"tab_id":-1,"fqbn":"","address":"","options":{}})
+		self.context.append({"tab_id":-1,"fqbn":"","address":"","x_indx":"","y_indx":"","options":{}})
 		super(settingspkg, self).__init__()
 
-	def clear_platform(self):
+	def clear_platform_options(self):
 		contxt = self.get_context()
 		contxt['fqbn'] = ""
 		contxt['options'].clear()
@@ -75,6 +84,10 @@ class settingspkg:
 
 		return self.context[0]
 
+	def set_indxy(self,x_indx,y_indx):
+		contxt = self.get_context()
+		contxt['x_indx'] = x_indx
+		contxt['y_indx'] = y_indx
 
 	def add_tab(self ,tab_id):
 		for x in self.context:
@@ -96,51 +109,13 @@ class settingspkg:
 settings_arduinotree = settingspkg()
 
 def run_arduinocli(args,cache=True):
-	global cache_file
 	args.append('--format')
 	args.append('json') 
 	ary = ['arduino-cli'] 
 	ary.extend(args) 
 
-
-	if cache :
-			
-			try:
-				
-				with open(os.path.join(cache_path, "command_runs.cache_file"),"r") as cache_file:
-					data = json.load(cache_file)
-				
-
-				if str(hash(str(ary))) in data:
-					return data[str(hash(str(ary)))]
-				else:
-
-					result = subprocess.run( ary, stdout=subprocess.PIPE,shell=True).stdout.decode('utf-8')
-					
-					with open(os.path.join(cache_path, "command_runs.cache_file"),"r") as cache_file:
-						data = json.load(cache_file)
-					
-					data[hash(str(ary))] = json.loads(result) 
-				
-					with open(os.path.join(cache_path, "command_runs.cache_file"),"w+") as cache_file:
-						json.dump(data, cache_file)
-					
-					return json.loads(result) 
-					
-
-			except Exception as e:
-				result = subprocess.run( ary, stdout=subprocess.PIPE,shell=True).stdout.decode('utf-8')
-				data = {}
-				data[hash(str(ary))] = json.loads(result)
-			
-				with open(os.path.join(cache_path, "command_runs.cache_file"),"w+") as cache_file:
-					json.dump(data, cache_file)
-				
-				return json.loads(result) 
-
-	else:
-		result = subprocess.run( ary, stdout=subprocess.PIPE,shell=True).stdout.decode('utf-8')
-		return json.loads(result)
+	result = subprocess.run( ary, stdout=subprocess.PIPE,shell=True).stdout.decode('utf-8')
+	return json.loads(result)
 
 
 
@@ -202,18 +177,23 @@ class createsub_menu:
 				},{
 					"caption": "Serial Monitor",
 					"command": "arduinotree_serial"
+				},{
+					"caption": "Refresh Cache",
+					"command": "arduinotree_cacherefresh"
 				}]
 		}] 
 
-	def add_platform_options(self,fqbn,mode=True):
+	def add_platform_options(self,x_indx,y_indx,mode = True):
 		global settings_arduinotree
+		global boards_list
 
 		if mode:
-			settings_arduinotree.clear_platform()
+			settings_arduinotree.clear_platform_options()
 
-		boards_details = run_arduinocli(['board','details','-b',fqbn,'-f']) 
-		if "config_options" in boards_details:
-			config_options = boards_details["config_options"]
+		#boards_details = run_arduinocli(['board','details','-b',fqbn,'-f']) 
+		board_config = boards_list[x_indx]["details"][y_indx]
+		if "config_options" in board_config:
+			config_options = board_config["config_options"]
 			platform_options = []
 			for x in config_options:
 				option_label = x["option_label"]
@@ -246,29 +226,35 @@ class createsub_menu:
 
 
 	def add_platform(self):
+		global boards_list
+
 		index_platform = 0
 		self.menu_main[0]["children"][index_platform]["children"].clear()
-		sublime.status_message('%03.2f %%' % 20) 
-		boards_list = run_arduinocli(['core','search']) 
+		sublime.status_message('%03.2f %%' % 20)
+		#boards_list = run_arduinocli(['core','search']) 
 		board_names = []
+
+		if(os.path.exists(cache_file)):
+			for x in range(0,len(boards_list)):
+				board_values = {"caption":boards_list[x]["category_name"],"children":[]}
+				for y in range(0,len(boards_list[x]["details"])):
+					if "fqbn" in boards_list[x]["details"][y]:
+						board_values["children"].append( {
+							"caption" : json.dumps(boards_list[x]["details"][y]["name"])[1:-1],
+							"command":"arduinotree_setplatform",
+							"args":{"x_indx":x,'y_indx':y,'fqbn':boards_list[x]["details"][y]["fqbn"]},
+							"checkbox":"false"
+							})
+
+				if(len(board_values["children"])>0):
+					board_names.append(board_values)
+
+
+			self.menu_main[0]["children"][0]["children"][:] = board_names
+			self.write()
 		
-		for x in boards_list:
-			board_values = {"caption":x["name"],"children":[]}
-			for y in x["boards"]:
-				if "fqbn" in y:
-					board_values["children"].append( {
-						"caption" : json.dumps(y["name"])[1:-1],
-						"command":"arduinotree_setplatform",
-						"args":{"fqbn":y["fqbn"]},
-						"checkbox":"false"
-						})
-
-			if(len(board_values["children"])>0):
-				board_names.append(board_values)
-
-
-		self.menu_main[0]["children"][0]["children"][:] = board_names
-		self.write()
+		else:
+			sublime.run_command('arduinotree_cacherefresh')
 
 
 
@@ -276,6 +262,10 @@ class createsub_menu:
 
 	def add_ports(self):
 		sublime.status_message('%03.2f %%' % 50)
+		t1 = threading.Thread(target=self.thread_ports)
+		t1.start();
+
+	def thread_ports(self):
 		boards_list = run_arduinocli(['board','list'],False)
 		index_port = 3
 		self.menu_main[0]["children"][index_port]["children"].clear()
@@ -307,7 +297,6 @@ class createsub_menu:
 
 
 	def write(self):
-		cache_path = os.path.join(sublime.cache_path(), "ArduinoTree")
 		os.makedirs(cache_path, exist_ok=True)
 		script_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Main.sublime-menu") 
 
@@ -332,10 +321,8 @@ def plugin_loaded():
 
 	menu_arduinotree.writeMain()
 
-	cache_path = os.path.join(sublime.cache_path(), "ArduinoTree")
 	if(os.path.exists(os.path.join(cache_path, "Main.sublime-menu"))):
 		os.remove(os.path.join(cache_path, "Main.sublime-menu"))
-
 
 
 	script_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Main.sublime-menu.backup") 
@@ -343,7 +330,16 @@ def plugin_loaded():
 		shutil.move(script_file ,os.path.join(os.path.dirname(os.path.realpath(__file__)), "Main.sublime-menu") )
 
 
-	menu_arduinotree.add_platform() 
+	menu_arduinotree.add_platform()
+
+class arduinotree_cacherefresh(sublime_plugin.WindowCommand):
+	def run(self):
+		global cache_file
+		script_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Main.sublime-menu.backup") 
+		f = open(cache_file,"w")
+		t1 = threading.Thread(target=cache_generate.generate_cache,args=(f,))
+		t1.start();
+
 
 class arduinotree_comport(sublime_plugin.WindowCommand):
 	def run(self, address):
@@ -364,14 +360,14 @@ class arduinotree_refresh(sublime_plugin.WindowCommand):
 		menu_arduinotree.add_ports()
 
 class arduinotree_setplatform(sublime_plugin.WindowCommand):
-	def run(self, fqbn):
+	def run(self, x_indx,y_indx,fqbn):
 		global settings_arduinotree
 
-		menu_arduinotree.add_platform_options(fqbn)
+		menu_arduinotree.add_platform_options(x_indx,y_indx)
 		settings_arduinotree.set_fqbn(fqbn)
 
 
-	def is_checked(self,fqbn):
+	def is_checked(self,x_indx,y_indx,fqbn):
 		global settings_arduinotree
 
 		if fqbn == settings_arduinotree.get_fqbn():
@@ -456,7 +452,7 @@ class tabListener(sublime_plugin.ViewEventListener):
 				contxt = settings_arduinotree.get_context()
 				if contxt:
 					if contxt['fqbn'] != "":
-						menu_arduinotree.add_platform_options(contxt['fqbn'],False)
+						menu_arduinotree.add_platform_options(contxt["x_indx"],contxt["y_indx"],contxt['fqbn'],False)
 		
 
 class ArduinoTreeCommand(sublime_plugin.TextCommand):
